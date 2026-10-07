@@ -26,3 +26,9 @@
 !demo-app/
 !demo-app/app.py
 !demo-app/Containerfile
+
+# Docker Hub 倉庫描述（版控，用腳本送出）
+!docs/
+!docs/dockerhub/
+!docs/dockerhub/payment-api.md
+!docs/dockerhub/update-descriptions.sh
