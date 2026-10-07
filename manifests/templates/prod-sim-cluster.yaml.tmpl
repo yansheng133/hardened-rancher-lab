@@ -1,0 +1,57 @@
+# Rancher 下游叢集 prod-sim 範本：hardened RKE2（CIS profile、SELinux、稽核日誌、rancher-restricted PSA）。
+# 用法（只替換這兩個變數，避免 envsubst 動到其他內容）：
+#   export REGISTRY_HOST=registry.192.0.2.10.sslip.io
+#   export REGISTRY_CA_BUNDLE_B64=$(base64 < lab-ca.crt | tr -d '\n')
+#   envsubst '${REGISTRY_HOST} ${REGISTRY_CA_BUNDLE_B64}' < prod-sim-cluster.yaml.tmpl | kubectl --kubeconfig <管理叢集> apply -f -
+# Registry 的帳密放在 authConfigSecretName 指向的 Secret，不放在這個檔案。
+# kubernetesVersion 是測試時用的版本，請依 Rancher 與 Registry 的支援矩陣調整。
+# 單節點、Cilium operator 單副本：非官方建議拓撲，僅供展示。
+apiVersion: provisioning.cattle.io/v1
+kind: Cluster
+metadata:
+  name: prod-sim
+  namespace: fleet-default
+spec:
+  kubernetesVersion: v1.35.8+rke2r1
+  defaultPodSecurityAdmissionConfigurationTemplateName: rancher-restricted
+  rkeConfig:
+    machineGlobalConfig:
+      cni: cilium
+      ingress-controller: traefik
+      profile: cis
+      selinux: true
+      etcd-expose-metrics: true
+      audit-policy-file: |
+        apiVersion: audit.k8s.io/v1
+        kind: Policy
+        omitStages: ["RequestReceived"]
+        rules:
+          - level: None
+            nonResourceURLs: ["/healthz*", "/readyz*", "/livez*", "/version", "/metrics"]
+          - level: None
+            users: ["system:kube-proxy"]
+            verbs: ["watch"]
+          - level: Metadata
+            resources:
+              - group: ""
+                resources: ["secrets", "configmaps", "serviceaccounts/token"]
+          - level: Request
+            verbs: ["create", "update", "patch", "delete", "deletecollection"]
+          - level: Metadata
+      kube-apiserver-arg:
+        - audit-log-path=/var/lib/rancher/rke2/server/logs/audit.log
+        - audit-log-maxage=30
+        - audit-log-maxbackup=10
+        - audit-log-maxsize=100
+    chartValues:
+      rke2-cilium:
+        operator:
+          replicas: 1
+    registries:
+      configs:
+        ${REGISTRY_HOST}:
+          authConfigSecretName: prod-sim-registry-auth   # fleet-default 命名空間內、type kubernetes.io/basic-auth 的 Secret（另行建立，不放進 Git）
+          caBundle: ${REGISTRY_CA_BUNDLE_B64}            # 簽發 Registry 憑證的 CA（PEM）做 base64，單行
+    upgradeStrategy:
+      controlPlaneConcurrency: "1"
+      workerConcurrency: "1"

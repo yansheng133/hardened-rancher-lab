@@ -1,0 +1,17 @@
+# rancher-logging 的 values（在 CIS profile、SELinux enforcing 的 RKE2 單節點叢集上測過）。
+#
+# global.cattle.clusterId／clusterName：從 Rancher「Apps」安裝時由 Rancher 自動填入，這裡不寫死。
+global:
+  cattle:
+    systemDefaultRegistry: registry.rancher.com
+  # 節點先安裝官方 rancher-selinux 套件（提供 rke_logreader_t），收集器以該型別執行，才讀得到 /var/log/containers。
+  # 注意：rancher-selinux 0.10-1.sle 的 SLE 政策缺幾條規則，fluentbit 會因監聽 2020 被拒而 CrashLoop；
+  # 上游修正前請在節點另外安裝 fallback-selinux/rancher-selinux-sle-logreader-fix.cil。
+  # 已於 2026-10-07 在 SLES 16.0／RKE2 v1.35.8＋rancher-selinux 0.10-1.sle 實測。
+  seLinux:
+    enabled: true
+additionalLoggingSources:
+  rke2:
+    enabled: true
+# SLES 16 的 journald 持久化在 /var/log/journal（chart 預設的 /run/log/journal 讀不到）
+systemdLogPath: /var/log/journal

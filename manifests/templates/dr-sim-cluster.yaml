@@ -1,0 +1,21 @@
+# Rancher 下游叢集 dr-sim（第三台 EC2，選用）：一般 RKE2，不開 CIS profile，用來展示 Fleet 多叢集派送與組態漂移。
+# 單節點、Cilium operator 單副本。kubernetesVersion 是測試時用的版本，請依 Rancher 支援矩陣調整。
+apiVersion: provisioning.cattle.io/v1
+kind: Cluster
+metadata:
+  name: dr-sim
+  namespace: fleet-default
+spec:
+  kubernetesVersion: v1.35.8+rke2r1
+  rkeConfig:
+    machineGlobalConfig:
+      cni: cilium
+      ingress-controller: traefik
+      selinux: true
+    chartValues:
+      rke2-cilium:
+        operator:
+          replicas: 1
+    upgradeStrategy:
+      controlPlaneConcurrency: "1"
+      workerConcurrency: "1"

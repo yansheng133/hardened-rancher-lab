@@ -1,0 +1,28 @@
+# 白名單式：預設忽略全部，只放行明確列出的檔案。
+# 新增檔案時要在這裡加一行，避免金鑰、kubeconfig、狀態檔被誤 commit。
+*
+
+!.gitignore
+!README.md
+!LICENSE
+
+!scripts/
+!scripts/lab.sh
+!scripts/step2-network-ec2.sh
+!scripts/fleet-drift.sh
+!scripts/registry-scan-summary.py
+!scripts/n3-secret-scan.py
+!scripts/v5-check.py
+!scripts/v6-dev-user-check.sh
+
+!manifests/
+!manifests/*.yaml
+!manifests/templates/
+!manifests/templates/*.yaml
+!manifests/templates/*.yaml.tmpl
+!manifests/fallback-selinux/
+!manifests/fallback-selinux/*.cil
+
+!demo-app/
+!demo-app/app.py
+!demo-app/Containerfile

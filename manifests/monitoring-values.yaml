@@ -1,0 +1,35 @@
+# rancher-monitoring 的 values（在 CIS profile、SELinux enforcing 的 RKE2 單節點叢集上測過）。
+#
+# global.cattle.clusterId／clusterName：從 Rancher「Apps」安裝時由 Rancher 自動填入，這裡不寫死。
+# 若改用 helm CLI 安裝，請自行補上 global.cattle.clusterId（Rancher 叢集 ID）與 clusterName。
+global:
+  cattle:
+    systemDefaultRegistry: registry.rancher.com
+  # 節點先安裝官方 rancher-selinux 套件，再開這個選項：node-exporter 會以 prom_node_exporter_t 執行，
+  # filesystem collector 才讀得到 /host/proc/1/mountinfo（否則以 container_t 執行會被拒，磁碟面板 No data）。
+  # 已於 2026-10-07 在 SLES 16.0／RKE2 v1.35.8＋rancher-selinux 0.10-1.sle 實測：node_filesystem_* 正常、0 筆 AVC，不需自寫政策。
+  seLinux:
+    enabled: true
+rke2ControllerManager: {enabled: true}
+rke2Scheduler: {enabled: true}
+rke2Proxy: {enabled: true}
+rke2Etcd: {enabled: true}
+rke2IngressNginx: {enabled: false}   # 叢集用 Traefik，Traefik 的抓取見 m2-traefik-podmonitor.yaml
+prometheus:
+  prometheusSpec:
+    retention: 10d
+    retentionSize: 40GiB
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: {requests: {storage: 50Gi}}
+grafana:
+  persistence:
+    enabled: true
+    size: 5Gi
+  # init-chown-data 只有 CHOWN 一項 capability，進不了 Grafana 自己建立的 700 權限子目錄；
+  # PVC 裡已有資料時，Grafana 每次重啟都會卡在 Init:CrashLoopBackOff。
+  # 資料本來就屬 uid 472、Pod 也有 fsGroup 472，所以這個 init 容器可以關掉。
+  initChownData:
+    enabled: false

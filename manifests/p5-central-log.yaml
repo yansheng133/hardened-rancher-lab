@@ -1,0 +1,139 @@
+# 叢集內的示範日誌接收端（僅供展示與驗證，不是正式的日誌平台），以及指向它的 ClusterOutput／ClusterFlow。
+# 接收端：syslog over TCP（:5140，RFC5424，支援 octet counting 與換行分隔）＋ HTTP（:8080，GET / 回傳統計）。
+# ClusterOutput 用 Rancher 介面支援的 syslog 類型；ClusterFlow 把命名空間 demo 的日誌送過去。
+# 驗證：kubectl -n central-log port-forward svc/log-receiver 8080 後 curl localhost:8080/
+# 注意：資料放在 emptyDir，Pod 重建就清空。
+apiVersion: v1
+kind: Namespace
+metadata: {name: central-log}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: log-receiver, namespace: central-log}
+data:
+  server.py: |
+    # 示範用日誌接收端：HTTP（:8080）與 syslog over TCP（:5140，RFC5424，支援 octet counting 與換行分隔）
+    # GET :8080/ 回傳統計：總筆數、各來源、各命名空間、各 app 最後一筆的接收時間與原始時間戳
+    import json, re, socketserver, threading, time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    OUT = "/data/received.jsonl"
+    lock = threading.Lock()
+    stats = {"records": 0, "last_received_utc": None, "by_via": {}, "by_namespace": {}, "last_by_app": {}}
+    def now():
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    def record(line, via):
+        try:
+            r = json.loads(line)
+        except Exception:
+            r = {"raw": line}
+        k = r.get("kubernetes", {}) if isinstance(r, dict) else {}
+        ns = k.get("namespace_name", "?"); app = k.get("labels", {}).get("app", k.get("container_name", "?"))
+        t = now()
+        with lock:
+            with open(OUT, "a") as f:
+                f.write(json.dumps({"via": via, "received_utc": t, "record": r}) + "\n")
+            stats["records"] += 1; stats["last_received_utc"] = t
+            stats["by_via"][via] = stats["by_via"].get(via, 0) + 1
+            stats["by_namespace"][ns] = stats["by_namespace"].get(ns, 0) + 1
+            stats["last_by_app"][app] = {"via": via, "received_utc": t, "time": r.get("time") if isinstance(r, dict) else None,
+                                         "message": (r.get("message") or r.get("log") or "")[:200] if isinstance(r, dict) else ""}
+    SYSLOG = re.compile(r"^<\d+>\d+ \S+ \S+ \S+ \S+ \S+ (?:-|(?:\[.*?\])+) ?(.*)$", re.S)
+    def syslog_msg(m):
+        mm = SYSLOG.match(m)
+        body = mm.group(1) if mm else m
+        i = body.find("{")
+        return body[i:] if i >= 0 else body
+    class SyslogTCP(socketserver.BaseRequestHandler):
+        def handle(self):
+            buf = b""
+            while True:
+                chunk = self.request.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+                while buf:
+                    m = re.match(rb"^(\d+) ", buf)
+                    if m:
+                        n = int(m.group(1)); start = m.end()
+                        if len(buf) < start + n:
+                            break
+                        msg, buf = buf[start:start + n], buf[start + n:]
+                    elif b"\n" in buf:
+                        msg, buf = buf.split(b"\n", 1)
+                    else:
+                        break
+                    msg = msg.decode(errors="replace").strip()
+                    if msg:
+                        record(syslog_msg(msg), "syslog")
+    class H(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode(errors="replace")
+            for l in body.splitlines():
+                if l.strip():
+                    record(l, "http")
+            self.send_response(200); self.end_headers()
+        def do_GET(self):
+            with lock:
+                b = json.dumps(stats).encode()
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(b)
+        def log_message(self, *a):
+            pass
+    class TS(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True; daemon_threads = True
+    threading.Thread(target=TS(("", 5140), SyslogTCP).serve_forever, daemon=True).start()
+    ThreadingHTTPServer(("", 8080), H).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: log-receiver, namespace: central-log}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: log-receiver}}
+  template:
+    metadata: {labels: {app: log-receiver}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, fsGroup: 1000, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: receiver
+          image: registry.suse.com/bci/python:3.12
+          command: [python3, -u, /app/server.py]
+          ports: [{containerPort: 8080, name: http}, {containerPort: 5140, name: syslog}]
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          volumeMounts: [{name: app, mountPath: /app}, {name: data, mountPath: /data}]
+      volumes:
+        - {name: app, configMap: {name: log-receiver}}
+        - {name: data, emptyDir: {}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: log-receiver, namespace: central-log}
+spec:
+  selector: {app: log-receiver}
+  ports: [{port: 8080, targetPort: 8080, name: http}, {port: 5140, targetPort: 5140, name: syslog}]
+---
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: ClusterOutput
+metadata: {name: central-log, namespace: cattle-logging-system}
+spec:
+  # 介面支援的 syslog 類型（RFC5424 over TCP）；接收端是 central-log/log-receiver
+  syslog:
+    host: log-receiver.central-log.svc.cluster.local
+    port: 5140
+    transport: tcp
+    insecure: true
+    format:
+      type: json
+    buffer:
+      flush_interval: 10s
+      flush_mode: interval
+      timekey: 1m
+      timekey_wait: 10s
+---
+apiVersion: logging.banzaicloud.io/v1beta1
+kind: ClusterFlow
+metadata: {name: demo-to-central, namespace: cattle-logging-system}
+spec:
+  match:
+    - select: {namespaces: [demo]}
+  globalOutputRefs: [central-log]

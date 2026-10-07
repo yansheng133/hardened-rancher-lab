@@ -1,0 +1,40 @@
+# Rancher 專案角色範本：payment 專案開發者。可管理工作負載、看日誌；不可改配額、成員與 RBAC。
+# 以 v6-dev-user-check.sh 用該使用者自己的 token 驗證「該可以的可以、不該可以的不行」。
+apiVersion: management.cattle.io/v3
+kind: RoleTemplate
+metadata: {name: payment-developer}
+displayName: payment-developer
+description: "payment 專案開發者：可管理工作負載、可看日誌；不可改配額、成員與 RBAC"
+context: project
+builtin: false
+external: false
+hidden: false
+locked: false
+rules:
+  - apiGroups: ["apps"]
+    resources: [deployments, replicasets, statefulsets, daemonsets, deployments/scale, statefulsets/scale]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ["batch"]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [services, configmaps, persistentvolumeclaims]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ["networking.k8s.io"]
+    resources: [ingresses]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events, resourcequotas, limitranges, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: ["management.cattle.io"]
+    resources: [projects]
+    verbs: [get]

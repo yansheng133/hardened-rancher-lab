@@ -1,0 +1,8 @@
+# payment-api 示範映像檔。基底為 SUSE BCI Python；版本是測試時用的，請改成當下最新的 tag 以減少弱點。
+# 建置：podman build -t ${REGISTRY_HOST}/payment/payment-api:1.0.1 -f Containerfile .
+FROM registry.suse.com/bci/python:3.14.7-base-8.13
+WORKDIR /app
+COPY app.py /app/app.py
+USER 1000
+EXPOSE 8080
+CMD ["python3", "-u", "/app/app.py"]

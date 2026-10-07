@@ -1,0 +1,23 @@
+# RKE2 的 CIS profile 在 kube-system 只放行同命名空間流量（default-network-policy）與 Traefik 的 web／websecure。
+# 這條只額外允許 cattle-monitoring-system 的 Prometheus 連 Traefik 的 metrics 埠（9100），不改 RKE2 的預設政策。
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rancher-monitoring-traefik-metrics
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rke2-traefik
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cattle-monitoring-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: metrics
+          protocol: TCP

@@ -1,0 +1,24 @@
+; ===== 暫時補丁：rancher-selinux 0.10 的 SLE 政策缺漏（rke_logreader_t） =====
+;
+; 適用：已安裝官方 rancher-selinux 0.10-1.sle（v0.10.production.1），且 rancher-logging 設 global.seLinux.enabled: true。
+; 不是用來取代 rancher-selinux，而是補在它上面；請先裝 rancher-selinux，再裝這個模組。
+;
+; 為何需要：
+;   rancher-selinux 0.10-1.sle 的 SLE 政策中，rke_logreader_t 比同版 centos9 政策（policy/centos9/rancher.te）少了下列規則。
+;   rancher-logging 的 fluentbit 以 rke_logreader_t 執行時，監聽 metrics 埠 2020 被拒而 CrashLoop，
+;   也無法 watch 日誌檔。
+;   本模組只補上 centos9 版已有、SLE 版漏掉的規則，不多開任何權限。
+;
+; 已於 2026-10-07 在 SLES 16.0／RKE2 v1.35.8＋rancher-selinux 0.10-1.sle 實測。
+;
+; 安裝（每個要跑 rancher-logging 的節點，root）：
+;   semodule -i rancher-selinux-sle-logreader-fix.cil
+; 確認：
+;   semodule -l | grep rancher-selinux-sle-logreader-fix
+; 上游修正後移除：
+;   semodule -r rancher-selinux-sle-logreader-fix
+(allow rke_logreader_t self (tcp_socket (listen)))
+(allow rke_logreader_t container_log_t (file (watch)))
+(allow rke_logreader_t container_var_lib_t (file (watch)))
+(allow rke_logreader_t syslogd_var_run_t (file (map)))
+(allow rke_logreader_t var_log_t (file (map watch)))

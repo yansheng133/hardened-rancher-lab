@@ -1,0 +1,52 @@
+# 持續打 payment-api 的 Ingress 產生流量，讓 Traefik 儀表板有資料。走叢集內的 rke2-traefik Service
+# （SNI／Host 用 Ingress 的主機名稱），不經公開 IP，節點換 IP 也不受影響。
+# 每 2 秒：/api/payments ×3、/healthz ×1、不存在的主機名稱 ×1（讓回應碼分布有 404）。
+# 套用前把 Deployment 的 PAYMENT_HOST 改成你的 payment-api Ingress 主機名稱。
+apiVersion: v1
+kind: Namespace
+metadata: {name: traffic-gen}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: traffic-gen, namespace: traffic-gen}
+data:
+  gen.py: |
+    import os, socket, ssl, time
+    TARGET = ("rke2-traefik.kube-system.svc.cluster.local", 443)
+    HOST = os.environ["PAYMENT_HOST"]
+    ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE  # Traefik 預設自簽憑證
+    def get(host, path):
+        try:
+            with socket.create_connection(TARGET, timeout=5) as s, ctx.wrap_socket(s, server_hostname=host) as t:
+                t.sendall(f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: traffic-gen\r\nConnection: close\r\n\r\n".encode())
+                return t.recv(64).split(b" ")[1].decode()
+        except Exception as e:
+            return type(e).__name__
+    n = 0
+    while True:
+        codes = [get(HOST, "/api/payments") for _ in range(3)] + [get(HOST, "/healthz"), get("unknown.example.com", "/")]
+        n += 1
+        if n % 30 == 1:
+            print(time.strftime("%H:%M:%S"), codes, flush=True)
+        time.sleep(2)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: traffic-gen, namespace: traffic-gen}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: traffic-gen}}
+  template:
+    metadata: {labels: {app: traffic-gen}}
+    spec:
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: gen
+          image: registry.suse.com/bci/python:3.14.7-base-8.13
+          command: [python3, -u, /app/gen.py]
+          env:
+            - {name: PAYMENT_HOST, value: payment.192.0.2.20.sslip.io}   # ← 改成你的 Ingress 主機名稱
+          resources: {requests: {cpu: 10m, memory: 32Mi}, limits: {cpu: 100m, memory: 64Mi}}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          volumeMounts: [{name: app, mountPath: /app}]
+      volumes: [{name: app, configMap: {name: traffic-gen}}]
