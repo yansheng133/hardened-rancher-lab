@@ -32,3 +32,11 @@
 !docs/dockerhub/
 !docs/dockerhub/payment-api.md
 !docs/dockerhub/update-descriptions.sh
+
+# SL Micro 下游叢集實測紀錄與工具
+!docs/sl-micro-validation/
+!docs/sl-micro-validation/README.md
+!docs/sl-micro-validation/tools/
+!docs/sl-micro-validation/tools/*.py
+!docs/sl-micro-validation/tools/*.sh
+!docs/sl-micro-validation/tools/*.yaml

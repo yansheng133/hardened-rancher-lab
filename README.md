@@ -230,6 +230,17 @@ RKE2 的 CIS profile 會在 `kube-system` 建立限制性的 NetworkPolicy（只
 - `t4-project-role.yaml`：專案角色 `payment-developer`，可管理工作負載、看日誌；不可改配額、成員與 RBAC。用 `v6-dev-user-check.sh` 以使用者自己的 token（不是 `--as`）驗證。
 - `templates/prod-sim-cluster.yaml.tmpl`：CIS profile、SELinux、etcd 指標、稽核政策與稽核日誌輪替、Registry 的驗證 Secret 與 CA（不略過 TLS 驗證）。
 
+## SL Micro 6.1 下游叢集實測
+
+同一套管理端，再接一組 **SUSE Linux Micro 6.1** 的下游叢集（三台控制平面加一台單節點，SELinux enforcing、CIS profile），
+逐項驗證快照還原、不中斷升級、縮減至零、事件驅動擴縮、執行期防護、靜態加密等能力。
+紀錄與工具在 [`docs/sl-micro-validation/`](docs/sl-micro-validation/)，最重要的三個結論：
+
+- **Rancher 的 etcd 快照還原在 RKE2 v1.35.8 上做不完，v1.35.9 起可以。** 根因是 system-agent-installer 的 `restorecon`
+  遇到正在被刪除的目錄就中止（上游 [rancher/rke2#11137](https://github.com/rancher/rke2/pull/11137) 已修正），和機器規格無關。
+- **「不中斷升級」取決於外部負載平衡器的健康檢查。** 1 秒×1 次只掉 1／約 3700 筆；5 秒×2 次、10 秒×3 次分別掉 30～75 筆。
+- **SL Micro 預設每天自動更新，有新套件就在維護時段自己重開機**，正式環境要先決定怎麼管理。
+
 ## 已知限制
 
 - **單節點、非官方建議拓撲，僅供展示。** Rancher、Registry 與各元件都是單副本，沒有高可用；Registry 官方要求的節點數也沒有滿足。

@@ -36,5 +36,11 @@ containers:
       capabilities: {drop: [ALL]}
 ```
 
+## 自己簽章時
+
+要讓 SUSE Security（NeuVector 5.6.x）的准入控制驗證簽章，簽章必須是 cosign v2 的格式（`.sig` tag）。
+用 cosign 3.x 簽時，**同時**加上 `--new-bundle-format=false --use-signing-config=false`；只用預設值簽的不會被驗證。
+實測紀錄見 [docs/sl-micro-validation](https://github.com/yansheng133/hardened-rancher-lab/tree/main/docs/sl-micro-validation)。
+
 這只是展示用的假服務，不處理任何真實交易。部署檔、建置方式與環境說明都在 GitHub：
 https://github.com/yansheng133/hardened-rancher-lab

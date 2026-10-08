@@ -1,0 +1,31 @@
+# Knative 縮減至零的預先拉取。DaemonSet 讓每台節點都拉 Knative revision 實際使用的 digest，
+# 主容器以同一映像檔常駐（sleep），映像檔一直被使用中，kubelet 的映像檔回收不會把它清掉。
+# Knative 每個 Pod 另有 queue-proxy sidecar（gcr.io/knative-releases/.../queue），只預拉應用映像檔時第一次仍要現拉它（實測 5.9 秒）。
+# queue 映像檔是 distroless、無法當容器常駐，改以 image volume（Kubernetes 1.35、containerd 2.2）掛進 hold 容器，由 kubelet 拉取並持續引用。
+# 部署前把佔位字串換掉：__DIGEST__ 取自 revision 的 imageDigest，__QUEUE__ 取自 config-deployment 的 queue-sidecar-image。
+apiVersion: v1
+kind: Namespace
+metadata: {name: t-c3-prepull}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: prepull-bci-python, namespace: t-c3-prepull}
+spec:
+  selector: {matchLabels: {app: prepull-bci-python}}
+  template:
+    metadata: {labels: {app: prepull-bci-python}}
+    spec:
+      tolerations: [{operator: Exists}]
+      terminationGracePeriodSeconds: 1
+      securityContext: {runAsNonRoot: true, runAsUser: 1000, seccompProfile: {type: RuntimeDefault}}
+      containers:
+      - name: hold
+        image: __DIGEST__
+        imagePullPolicy: IfNotPresent
+        command: ["sleep", "infinity"]
+        volumeMounts: [{name: queue-proxy-image, mountPath: /prepull/queue, readOnly: true}]
+        securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
+        resources: {requests: {cpu: 1m, memory: 8Mi}, limits: {cpu: 10m, memory: 16Mi}}
+      volumes:
+      - name: queue-proxy-image
+        image: {reference: "__QUEUE__", pullPolicy: IfNotPresent}
